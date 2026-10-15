@@ -1,13 +1,13 @@
 # macOS Recovery Admin User Creator
 Easily create and verify an admin user account on Intel-based Macs using Terminal in macOS Recovery Mode.
 
-This repository provides two robust shell scripts to **create and verify an admin user account** on macOS while booted into **Recovery Mode**. Ideal for system administrators, repair techs, or advanced users needing to regain access or create fallback user accounts on Intel-based Macs.
+This repository provides two shell scripts to **create and verify an admin user account** on macOS while booted into **Recovery Mode**. Ideal for system administrators, repair techs, or advanced users needing to regain access or create fallback user accounts on Intel-based Macs.
 
 ## 🚀 Features
 
-- Fully automated creation of a new local admin user
-- Safe operation from Recovery Mode with volume checks
-- Dynamically assigns correct UID
+- Interactive password entry followed by automated creation of a new local admin user
+- Checks the local directory database and refuses to overwrite an existing target account
+- Selects the next unused local UID (at least 501)
 - Sets login shell, home directory, and permissions
 - Adds the user to the `admin` group (GID 80)
 - Separate verification script checks:
@@ -36,19 +36,27 @@ This repository provides two robust shell scripts to **create and verify an admi
 5. (Optional) Run the verification script:
 ```bash /Volumes/<YourUSB>/check_adminuser.sh```
 
-## 🔐 Default Credentials
+## 🔐 Password entry and legacy reference
 
 * **Username**: `adminuser`
 * **Password**: `Password123`
 
-You can customize these by editing the `create_adminuser.sh` script before deployment.
+The password above is retained as a **historical reference only**. The creation script rejects it and requires a matching, hidden password entry of at least 12 characters. It never prints the new password. Existing accounts are left unchanged. Customize the username and full name in the script if needed.
 
-> ⚠️ For security, it is strongly recommended to change the password upon first login.
+Use `MOUNT_POINT="/Volumes/Your writable data volume" bash create_adminuser.sh` when the directory database is on a different volume. Use the same variable for the verifier. The selected volume must contain `var/db/dslocal/nodes/Default`; unlock and mount it first.
+
+If a directory operation fails, the script stops and does not report success. A partial account may remain; inspect it before any retry. It will not automatically delete or overwrite that account.
+
+Local tests mock directory operations; no macOS Recovery release has been validated by these tests. Creating a directory record does not establish FileVault unlock access, Secure Token enrollment, or successful login. The verifier checks metadata, not the password itself. `dscl` receives the password as a process argument during its short password-setting operation; use only a trusted Recovery session.
 
 ## 💡 Tip
 
-You can rename the scripts to `.command` files and add `chmod +x` to make them double-clickable in Finder on a live system.
+Run from an interactive Recovery Terminal. Piped input is refused, and an existing target account is never overwritten. Do not run the creation script casually on a live installation.
 
 ## 📜 License
 
 [MIT License](LICENSE)
+
+## Offline checks
+
+Run `bash -n create_adminuser.sh check_adminuser.sh` and `python3 -m unittest discover -s tests -v`. All account and filesystem mutation commands are mocked in tests.
