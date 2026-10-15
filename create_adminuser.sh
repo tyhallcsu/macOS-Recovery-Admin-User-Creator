@@ -3,62 +3,68 @@
 # Script to create a new admin user from macOS Recovery Mode
 # Usage: Run this script from Terminal in Recovery Mode
 
+# Disable tracing before handling passwords, even when invoked with bash -x.
+set +x
+
 # Configuration
-MOUNT_POINT="/Volumes/Macintosh HD"
+MOUNT_POINT="${MOUNT_POINT:-/Volumes/Macintosh HD}"
 USERNAME="adminuser"
-PASSWORD="Password123"
+LEGACY_PASSWORD="Password123" # Historical reference only; never an account default.
+PASSWORD=""
 FULL_NAME="Admin User"
 
-echo "Creating admin user: $USERNAME"
-echo "Mount point: $MOUNT_POINT"
+request_password() {
+    local confirmation
+    if [ ! -t 0 ]; then
+        echo "Error: use an interactive terminal to enter the new password." >&2
+        return 1
+    fi
+    printf 'New administrator password (at least 12 characters): ' >&2
+    IFS= read -r -s PASSWORD || return 1
+    printf '\nConfirm password: ' >&2
+    IFS= read -r -s confirmation || return 1
+    printf '\n' >&2
+    if [ "${#PASSWORD}" -lt 12 ] || [ "$PASSWORD" = "$LEGACY_PASSWORD" ] || [ "$PASSWORD" != "$confirmation" ]; then
+        PASSWORD=''
+        echo "Error: passwords must match, contain at least 12 characters, and differ from the legacy default." >&2
+        return 1
+    fi
+}
 
-# Check if the volume is mounted
-if [ ! -d "$MOUNT_POINT" ]; then
-    echo "Error: $MOUNT_POINT not found. Make sure the disk is mounted."
-    exit 1
+main() {
+    set -euo pipefail
+    trap 'unset PASSWORD' EXIT
+    local db_path existing_users next_uid home_dir
+    db_path="$MOUNT_POINT/var/db/dslocal/nodes/Default"
+    if [ ! -d "$db_path" ]; then
+        echo "Error: local directory database not found on the selected volume." >&2
+        return 1
+    fi
+    existing_users=$(dscl -f "$db_path" localonly -list /Local/Default/Users UniqueID)
+    if printf '%s\n' "$existing_users" | awk '{print $1}' | grep -Fxq "$USERNAME"; then
+        echo "Error: target account already exists; its password and record will not be modified." >&2
+        return 1
+    fi
+    next_uid=$(printf '%s\n' "$existing_users" | awk '$2 ~ /^[0-9]+$/ && $2 > max {max=$2} END {print (max < 500 ? 501 : max+1)}')
+    request_password
+    echo "Creating admin user: $USERNAME on $MOUNT_POINT (UID $next_uid)"
+    dscl -f "$db_path" localonly -create "/Local/Default/Users/$USERNAME"
+    dscl -f "$db_path" localonly -create "/Local/Default/Users/$USERNAME" UserShell /bin/zsh
+    dscl -f "$db_path" localonly -create "/Local/Default/Users/$USERNAME" RealName "$FULL_NAME"
+    dscl -f "$db_path" localonly -create "/Local/Default/Users/$USERNAME" UniqueID "$next_uid"
+    dscl -f "$db_path" localonly -create "/Local/Default/Users/$USERNAME" PrimaryGroupID 20
+    dscl -f "$db_path" localonly -create "/Local/Default/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
+    dscl -f "$db_path" localonly -passwd "/Local/Default/Users/$USERNAME" "$PASSWORD"
+    unset PASSWORD
+    dscl -f "$db_path" localonly -append /Local/Default/Groups/admin GroupMembership "$USERNAME"
+    home_dir="$MOUNT_POINT/Users/$USERNAME"
+    mkdir -p "$home_dir"/{Desktop,Documents,Downloads,Movies,Music,Pictures,Public,Library}
+    chown -R "$next_uid:20" "$home_dir"
+    chmod 755 "$home_dir"
+    chmod 700 "$home_dir/Library"
+    echo "Created $USERNAME. Restart and use the password you entered; it is not printed or saved by this script."
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi
-
-# Find the next available UID (starting from 501)
-NEXT_UID=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -list /Local/Default/Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-NEXT_UID=$((NEXT_UID + 1))
-
-# If no users exist, start with 501
-if [ -z "$NEXT_UID" ] || [ "$NEXT_UID" -lt 501 ]; then
-    NEXT_UID=501
-fi
-
-echo "Assigning UID: $NEXT_UID"
-
-# Create the user record
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -create /Local/Default/Users/$USERNAME
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -create /Local/Default/Users/$USERNAME UserShell /bin/zsh
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -create /Local/Default/Users/$USERNAME RealName "$FULL_NAME"
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -create /Local/Default/Users/$USERNAME UniqueID $NEXT_UID
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -create /Local/Default/Users/$USERNAME PrimaryGroupID 20
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -create /Local/Default/Users/$USERNAME NFSHomeDirectory /Users/$USERNAME
-
-# Set the password
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -passwd /Local/Default/Users/$USERNAME "$PASSWORD"
-
-# Add user to admin group (GID 80)
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -append /Local/Default/Groups/admin GroupMembership $USERNAME
-
-# Create home directory structure
-HOME_DIR="$MOUNT_POINT/Users/$USERNAME"
-mkdir -p "$HOME_DIR"/{Desktop,Documents,Downloads,Movies,Music,Pictures,Public,Library}
-
-# Set proper ownership and permissions
-chown -R $NEXT_UID:20 "$HOME_DIR"
-chmod 755 "$HOME_DIR"
-chmod 700 "$HOME_DIR/Library"
-
-echo "Successfully created admin user: $USERNAME"
-echo "UID: $NEXT_UID"
-echo "Home directory: /Users/$USERNAME"
-echo "User has been added to admin group"
-echo ""
-echo "You can now restart and log in with:"
-echo "Username: $USERNAME"
-echo "Password: $PASSWORD"
-echo ""
-echo "IMPORTANT: Change the password after first login for security!"

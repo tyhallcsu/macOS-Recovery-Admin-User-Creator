@@ -4,7 +4,7 @@
 # Run this from Terminal in Recovery Mode after running the creation script
 
 # Configuration (should match your creation script)
-MOUNT_POINT="/Volumes/Macintosh HD"
+MOUNT_POINT="${MOUNT_POINT:-/Volumes/Macintosh HD}"
 USERNAME="adminuser"
 
 echo "=== Admin User Verification Script ==="
@@ -30,22 +30,22 @@ fi
 
 echo ""
 echo "--- User Details ---"
-UID=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME UniqueID 2>/dev/null | awk '{print $2}')
-GID=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME PrimaryGroupID 2>/dev/null | awk '{print $2}')
-SHELL=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME UserShell 2>/dev/null | awk '{print $2}')
-HOME=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+ACCOUNT_UID=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME UniqueID 2>/dev/null | awk '{print $2}')
+ACCOUNT_GID=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME PrimaryGroupID 2>/dev/null | awk '{print $2}')
+ACCOUNT_SHELL=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME UserShell 2>/dev/null | awk '{print $2}')
+ACCOUNT_HOME=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME NFSHomeDirectory 2>/dev/null | awk '{print $2}')
 REALNAME=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME RealName 2>/dev/null | cut -d' ' -f2-)
 
-[ -n "$UID" ] && echo "✅ UID: $UID" || echo "❌ UID not set"
-[ -n "$GID" ] && echo "✅ Primary GID: $GID" || echo "❌ Primary GID not set"
-[ -n "$SHELL" ] && echo "✅ Shell: $SHELL" || echo "❌ Shell not set"
-[ -n "$HOME" ] && echo "✅ Home Directory: $HOME" || echo "❌ Home Directory not set"
+[ -n "$ACCOUNT_UID" ] && echo "✅ UID: $ACCOUNT_UID" || echo "❌ UID not set"
+[ -n "$ACCOUNT_GID" ] && echo "✅ Primary GID: $ACCOUNT_GID" || echo "❌ Primary GID not set"
+[ -n "$ACCOUNT_SHELL" ] && echo "✅ Shell: $ACCOUNT_SHELL" || echo "❌ Shell not set"
+[ -n "$ACCOUNT_HOME" ] && echo "✅ Home Directory: $ACCOUNT_HOME" || echo "❌ Home Directory not set"
 [ -n "$REALNAME" ] && echo "✅ Real Name: $REALNAME" || echo "❌ Real Name not set"
 
 echo ""
 echo "--- Password Verification ---"
 PASSWD_HASH=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$USERNAME AuthenticationAuthority 2>/dev/null)
-[ -n "$PASSWD_HASH" ] && echo "✅ Password is set" || echo "❌ Password not set"
+[ -n "$PASSWD_HASH" ] && echo "✅ Authentication authority exists (does not verify the password)" || echo "❌ Password not set"
 
 echo ""
 echo "--- Admin Privileges Verification ---"
@@ -69,8 +69,8 @@ fi
 echo ""
 echo "--- System Users Overview ---"
 echo "All local users found:"
-dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -list /Local/Default/Users | grep -v "^_" | while read user; do
-    user_uid=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read /Local/Default/Users/$user UniqueID 2>/dev/null | awk '{print $2}')
+dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -list /Local/Default/Users | grep -v "^_" | while IFS= read -r user; do
+    user_uid=$(dscl -f "$MOUNT_POINT/var/db/dslocal/nodes/Default" localonly -read "/Local/Default/Users/$user" UniqueID 2>/dev/null | awk '{print $2}')
     if [ "$user_uid" -ge 500 ] 2>/dev/null; then
         [ "$user" = "$USERNAME" ] && echo "✅ $user (UID: $user_uid) - NEWLY CREATED" || echo "   $user (UID: $user_uid)"
     fi
@@ -82,6 +82,6 @@ echo ""
 echo "If all checks show ✅, the user was created successfully!"
 echo "You can now restart and log in with:"
 echo "Username: $USERNAME"
-echo "Password: Password123"
+echo "Password: use the password entered during creation (not displayed here)."
 echo ""
-echo "REMEMBER: Change the password after first login!"
+echo "This check does not validate login, FileVault unlock, or Secure Token enrollment."
